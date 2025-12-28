@@ -1,0 +1,75 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// User model for authentication and document ownership
+model User {
+  id            String            @id @default(cuid())
+  email         String            @unique
+  name          String?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  documents     Document[]
+  workspaces    WorkspaceMember[]
+}
+
+// Workspace model for organizing documents
+model Workspace {
+  id        String            @id @default(cuid())
+  name      String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  documents Document[]
+  members   WorkspaceMember[]
+}
+
+// WorkspaceMember model for workspace membership and roles
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role      @default(MEMBER)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+// Document model for storing knowledge base documents with CRDT state
+model Document {
+  id          String    @id @default(cuid())
+  title       String    @default("Untitled")
+  workspaceId String
+  authorId    String
+  yjsState    Bytes?    // Serialized Yjs document state for CRDT
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([authorId])
+}
+
+// Role enum for workspace membership levels
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
