@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Obsidian Cloud
 
-## Getting Started
+A collaborative document editor with real-time sync, slash commands, and offline support.
 
-First, run the development server:
+## Features
+
+- Real-time collaboration using CRDT (Yjs)
+- Slash command menu for quick formatting
+- Offline support with automatic sync
+- Dark/light theme support
+- PostgreSQL database with Prisma ORM
+- User authentication with sign-up and sign-in
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Configure environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env` and update with your PostgreSQL connection:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/obsidian_cloud"
+AUTH_SECRET="your-secret-key"
+AUTH_URL="http://localhost:3000"
+```
 
-## Learn More
+### 3. Setup database
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# Generate Prisma client
+npm run db:generate
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Push schema to database
+npm run db:push
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Seed with demo data (optional)
+npm run db:seed
+```
 
-## Deploy on Vercel
+### 4. Run the app
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+# Development server
+npm run dev
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# WebSocket server for collaboration (optional)
+npm run ws-server
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+## Authentication
+
+### Sign Up
+- Create a new account at `/sign-up`
+- Provide email, password (min 8 characters), and optional name
+- A default workspace is automatically created for new users
+
+### Sign In
+- Sign in at `/sign-in` with your email and password
+- Demo credentials (if seeded):
+  - Email: `demo@example.com`
+  - Password: `password123`
+
+## Scripts
+
+| Command | Description |
+
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm run ws-server` | Start WebSocket server |
+| `npm run db:generate` | Generate Prisma client |
+| `npm run db:push` | Push schema to database |
+| `npm run db:seed` | Seed demo data |
+
+## Tech Stack This Curd Application
+
+- Next.js 16
+- React 19
+- TypeScript
+- Prisma + PostgreSQL
+- TipTap Editor
+- Yjs (CRDT)
+- NextAuth.js
+- Tailwind CSS
+

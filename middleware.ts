@@ -1,11 +1,14 @@
-import { auth } from '@/lib/auth';
+import NextAuth from 'next-auth';
+import { authConfigEdge } from '@/lib/auth/config.edge';
 import { NextResponse } from 'next/server';
 
 // Routes that don't require authentication
-const publicRoutes = ['/sign-in', '/api/auth'];
+const publicRoutes = ['/sign-in', '/sign-up', '/api/auth', '/'];
 
 // Routes that should redirect to dashboard if already authenticated
-const authRoutes = ['/sign-in'];
+const authRoutes = ['/sign-in', '/sign-up'];
+
+const { auth } = NextAuth(authConfigEdge);
 
 export default auth((req) => {
   const { nextUrl } = req;
@@ -13,14 +16,16 @@ export default auth((req) => {
   const pathname = nextUrl.pathname;
 
   // Check if the current route is public
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  const isPublicRoute = publicRoutes.some(route => 
+    pathname === route || pathname.startsWith(route + '/')
+  );
   
   // Check if the current route is an auth route (sign-in, etc.)
   const isAuthRoute = authRoutes.some(route => pathname.startsWith(route));
 
   // If user is logged in and trying to access auth routes, redirect to dashboard
   if (isLoggedIn && isAuthRoute) {
-    return NextResponse.redirect(new URL('/', nextUrl));
+    return NextResponse.redirect(new URL('/dashboard', nextUrl));
   }
 
   // If route is public, allow access
