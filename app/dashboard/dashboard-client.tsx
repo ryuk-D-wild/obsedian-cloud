@@ -121,55 +121,49 @@ export function DashboardClient({
     return true;
   };
 
-  const handleContentUpdate = useCallback((content: string, yjsUpdate?: Uint8Array) => {
-    setDocumentContent(content);
+  const handleYjsUpdate = useCallback((yjsState: Uint8Array) => {
+    // Store latest state
+    lastSavedStateRef.current = yjsState;
     
+    // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
-    saveTimeoutRef.current = setTimeout(async () => {
+    // Very short delay (100ms) - feels instant but batches rapid changes
+    saveTimeoutRef.current = setTimeout(() => {
       if (!selectedDocumentId || isSavingRef.current) return;
       
-      const stateToSave = yjsUpdate || new TextEncoder().encode(content);
+      const stateToSave = lastSavedStateRef.current;
+      if (!stateToSave) return;
       
-      if (lastSavedStateRef.current && arraysEqual(lastSavedStateRef.current, stateToSave)) {
-        return;
-      }
+      console.log('💾 Saving document...', selectedDocumentId);
       
+      // If offline, queue for later
       if (!isOnline) {
         offlineQueueRef.current.push({ documentId: selectedDocumentId, state: stateToSave });
-        setSaveStatus('saved');
+        console.log('📴 Offline - queued for later');
         return;
       }
       
+      // Save to database
       isSavingRef.current = true;
-      setSaveStatus('saving');
       
-      try {
-        const result = await updateDocument(selectedDocumentId, { 
-          yjsState: new Uint8Array(stateToSave) as Uint8Array<ArrayBuffer>
-        });
-        
+      updateDocument(selectedDocumentId, { 
+        yjsState: new Uint8Array(stateToSave) as Uint8Array<ArrayBuffer>
+      }).then((result) => {
         if (result.success) {
-          lastSavedStateRef.current = stateToSave;
-          setSaveStatus('saved');
+          console.log('✅ Saved successfully');
         } else {
-          setSaveStatus('unsaved');
-          console.warn('Auto-save failed:', result.error);
+          console.warn('❌ Auto-save failed:', result.error);
         }
-      } catch (error) {
-        setSaveStatus('unsaved');
-        console.warn('Auto-save failed:', error);
-      } finally {
+      }).catch((error) => {
+        console.warn('❌ Auto-save failed:', error);
+      }).finally(() => {
         isSavingRef.current = false;
-      }
-    }, 3000);
+      });
+    }, 100); // 100ms - feels instant
   }, [selectedDocumentId, isOnline]);
-
-  const handleYjsUpdate = useCallback((yjsState: Uint8Array) => {
-    handleContentUpdate('', yjsState);
-  }, [handleContentUpdate]);
 
   useEffect(() => {
     return () => {
@@ -255,10 +249,14 @@ export function DashboardClient({
   }, [selectedDocumentId, addToast]);
 
   const handleSelectDocument = useCallback(async (id: string) => {
-    if (selectedDocumentId && saveTimeoutRef.current) {
+    // Cancel any pending saves
+    if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
+    
+    // Don't reload if already selected
+    if (selectedDocumentId === id) return;
     
     setIsLoadingDocument(true);
     setSelectedDocumentId(id);
@@ -268,17 +266,43 @@ export function DashboardClient({
     try {
       const result = await getDocument(id);
       
+      console.log('📂 Loading document:', id, result);
+      
       if (result.success && result.data?.yjsState) {
-        const content = new TextDecoder().decode(result.data.yjsState);
-        setDocumentContent(content);
-        setYjsInitialState(result.data.yjsState);
-        lastSavedStateRef.current = result.data.yjsState;
+        const yjsData = result.data.yjsState;
+        
+        // Check if it's Yjs binary or HTML text
+        try {
+          // Try to decode as text to check if it's HTML
+          const textContent = new TextDecoder().decode(yjsData);
+          
+          if (textContent.startsWith('<') || textContent.includes('</')) {
+            // It's HTML - convert to Yjs format
+            console.log('📝 Converting HTML to Yjs format');
+            setDocumentContent(textContent);
+            setYjsInitialState(null); // Let editor use HTML content
+          } else {
+            // It's Yjs binary
+            console.log('🔄 Loading Yjs binary state');
+            setYjsInitialState(yjsData);
+            setDocumentContent('');
+          }
+          lastSavedStateRef.current = yjsData;
+        } catch {
+          // If decode fails, treat as Yjs binary
+          console.log('🔄 Loading Yjs binary state (decode failed)');
+          setYjsInitialState(yjsData);
+          setDocumentContent('');
+          lastSavedStateRef.current = yjsData;
+        }
       } else {
+        console.log('📄 New empty document');
         setDocumentContent('');
         setYjsInitialState(null);
         lastSavedStateRef.current = null;
       }
-    } catch {
+    } catch (error) {
+      console.error('❌ Failed to load document:', error);
       setDocumentContent('');
       setYjsInitialState(null);
       lastSavedStateRef.current = null;
@@ -376,28 +400,17 @@ export function DashboardClient({
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-muted-foreground" />
               <span className="font-medium">{selectedDocument.title}</span>
-              <div className="flex items-center gap-1 ml-2 text-sm text-muted-foreground">
-                {!isOnline && (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                    <span className="text-yellow-500">Offline</span>
-                    <span className="mx-1">•</span>
-                  </>
-                )}
-                {saveStatus === 'saving' && (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                )}
-                {saveStatus === 'saved' && (
-                  <>
-                    <Check className="w-3 h-3 text-green-500" />
-                    <span>Saved</span>
-                  </>
-                )}
-                {saveStatus === 'unsaved' && (
-                  <span className="text-yellow-500">Editing...</span>
+              <div className="flex items-center gap-2 ml-2">
+                {!isOnline ? (
+                  <div className="flex items-center gap-1 text-sm">
+                    <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                    <span className="text-yellow-500 text-xs">Offline</span>
+                  </div>
+                ) : (
+                  <span 
+                    className="w-2 h-2 rounded-full bg-green-500" 
+                    title="All changes saved"
+                  />
                 )}
               </div>
             </div>
@@ -416,6 +429,7 @@ export function DashboardClient({
               <EditorSkeleton />
             ) : (
               <CollaborationProvider
+                key={selectedDocumentId}
                 documentId={selectedDocumentId}
                 userId={userId}
                 userName={userName}
@@ -424,13 +438,11 @@ export function DashboardClient({
               >
                 <div className="max-w-4xl mx-auto p-8">
                   <DocumentEditor
-                    key={selectedDocumentId}
                     documentId={selectedDocumentId}
                     userId={userId}
                     userName={userName}
                     initialContent={documentContent}
                     placeholder="Start typing or press '/' for commands..."
-                    onUpdate={handleContentUpdate}
                   />
                 </div>
               </CollaborationProvider>

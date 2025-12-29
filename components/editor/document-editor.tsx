@@ -13,7 +13,6 @@ import { useEffect, useMemo, useCallback } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
-import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import Placeholder from '@tiptap/extension-placeholder';
 import { useCollaboration } from '@/components/collaboration';
 import { SlashCommandMenu, type SlashCommand } from './slash-command-menu';
@@ -104,7 +103,8 @@ export function DocumentEditor({
   const editor = useEditor({
     // Prevent SSR hydration mismatch
     immediatelyRender: false,
-    content: initialContent || '',
+    // Don't set content when using Yjs - let Yjs handle it
+    content: (yjsFragment && provider) ? undefined : (initialContent || ''),
     extensions: [
       StarterKit.configure({
         // Enable history for undo/redo when not using collaboration
@@ -120,18 +120,8 @@ export function DocumentEditor({
             Collaboration.configure({
               fragment: yjsFragment,
             }),
-            // Only add cursor extension if provider has awareness
-            ...(provider.getWebsocketProvider()?.awareness
-              ? [
-                  CollaborationCursor.configure({
-                    provider: provider.getWebsocketProvider(),
-                    user: {
-                      name: userName,
-                      color: cursorColor,
-                    },
-                  }),
-                ]
-              : []),
+            // Disable CollaborationCursor to avoid errors when switching documents
+            // It requires a stable WebSocket connection which we don't have
           ]
         : []),
     ],
