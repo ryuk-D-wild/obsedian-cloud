@@ -58,6 +58,8 @@ export interface CollaborationProviderProps {
   initialState?: Uint8Array | null;
   /** Callback when document syncs */
   onSync?: (state: Uint8Array) => void;
+  /** Callback when document updates */
+  onUpdate?: (state: Uint8Array) => void;
   /** Callback when awareness changes */
   onAwarenessChange?: (collaborators: CollaboratorInfo[]) => void;
   /** Callback when connection status changes */
@@ -79,6 +81,7 @@ export function CollaborationProvider({
   userColor,
   initialState,
   onSync,
+  onUpdate,
   onAwarenessChange,
   onConnectionChange,
   children,
@@ -141,6 +144,10 @@ export function CollaborationProvider({
             pendingUpdatesRef.current.push(update);
             setPendingChangesCount(pendingUpdatesRef.current.length);
           }
+          // Notify parent component of updates for persistence
+          if (yjsProvider) {
+            onUpdate?.(yjsProvider.getEncodedState());
+          }
         },
       });
 
@@ -166,7 +173,7 @@ export function CollaborationProvider({
       }
       providerRef.current = null;
     };
-  }, [documentId, serverUrl, userId, userName, userColor, initialState, onSync, onAwarenessChange, onConnectionChange, clearPendingChanges]);
+  }, [documentId, serverUrl, userId, userName, userColor, initialState, onSync, onUpdate, onAwarenessChange, onConnectionChange, clearPendingChanges]);
 
   // Update cursor position
   const updateCursor = useCallback((position: { x: number; y: number } | null) => {

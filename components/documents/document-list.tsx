@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { MoreHorizontal, FileText, Trash2, ExternalLink, Plus, Loader2 } from 'lucide-react';
+import { MoreHorizontal, FileText, Trash2, ExternalLink, Plus, Loader2, Edit2, Check, X } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -30,6 +30,7 @@ export interface DocumentListProps {
   documents: DocumentSummary[];
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename?: (id: string, newTitle: string) => void;
   onCreate: () => void;
   isCreating?: boolean;
   deletingIds?: string[];
@@ -67,10 +68,34 @@ export function DocumentList({
   documents,
   onSelect,
   onDelete,
+  onRename,
   onCreate,
   isCreating = false,
   deletingIds = [],
 }: DocumentListProps) {
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editTitle, setEditTitle] = React.useState('');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const startEditing = (doc: DocumentSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(doc.id);
+    setEditTitle(doc.title);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const saveEdit = (id: string) => {
+    if (editTitle.trim() && editTitle !== documents.find(d => d.id === id)?.title) {
+      onRename?.(id, editTitle.trim());
+    }
+    setEditingId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTitle('');
+  };
+
   return (
     <div className="w-full space-y-4">
       {/* Header with create button */}
@@ -144,7 +169,37 @@ export function DocumentList({
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                        <span className="truncate">{doc.title}</span>
+                        {editingId === doc.id ? (
+                          <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              ref={inputRef}
+                              type="text"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveEdit(doc.id);
+                                if (e.key === 'Escape') cancelEdit();
+                              }}
+                              className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-black"
+                            />
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              onClick={() => saveEdit(doc.id)}
+                            >
+                              <Check className="size-3" />
+                            </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              onClick={cancelEdit}
+                            >
+                              <X className="size-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="truncate">{doc.title}</span>
+                        )}
                         {doc.isPending && (
                           <Loader2 className="size-3 animate-spin text-muted-foreground" aria-label="Saving" />
                         )}
@@ -182,6 +237,14 @@ export function DocumentList({
                             <ExternalLink className="size-4" aria-hidden="true" />
                             Open
                           </DropdownMenuItem>
+                          {onRename && (
+                            <DropdownMenuItem
+                              onClick={(e) => startEditing(doc, e)}
+                            >
+                              <Edit2 className="size-4" aria-hidden="true" />
+                              Rename
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             variant="destructive"
                             onClick={(e) => {
@@ -265,6 +328,14 @@ export function DocumentList({
                       <ExternalLink className="size-4" aria-hidden="true" />
                       Open
                     </DropdownMenuItem>
+                    {onRename && (
+                      <DropdownMenuItem
+                        onClick={(e) => startEditing(doc, e)}
+                      >
+                        <Edit2 className="size-4" aria-hidden="true" />
+                        Rename
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       variant="destructive"
                       onClick={(e) => {

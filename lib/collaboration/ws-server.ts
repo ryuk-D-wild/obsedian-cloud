@@ -129,16 +129,17 @@ export class CollaborationServer {
   }
 
   private sendInitialSync(ws: WebSocket, room: DocumentRoom): void {
-    // Send current document state
+    // Send current document state using Yjs sync protocol
     const state = Y.encodeStateAsUpdate(room.doc);
-    const message: WSMessage = {
-      type: 'sync',
-      documentId: '',
-      data: Buffer.from(state).toString('base64'),
-    };
-    ws.send(JSON.stringify(message));
+    
+    // Yjs sync protocol: message type 0 (sync step 1) + state vector
+    const syncMessage = new Uint8Array(state.length + 1);
+    syncMessage[0] = 0; // Sync step 1
+    syncMessage.set(state, 1);
+    
+    ws.send(syncMessage, { binary: true });
 
-    // Send current presence list
+    // Send current presence list as JSON
     const presenceList = this.getPresenceList(room);
     ws.send(JSON.stringify({
       type: 'awareness',
@@ -154,9 +155,31 @@ export class CollaborationServer {
     data: Buffer
   ): void {
     try {
-      const message: WSMessage = JSON.parse(data.toString());
       client.lastSeen = Date.now();
       room.lastActivity = Date.now();
+
+      // Check if message is binary (Yjs sync protocol) or JSON
+      if (data[0] === 0 || data[0] === 1 || data[0] === 2) {
+        // Binary message from Yjs - just broadcast to other clients
+        room.clients.forEach((otherClient, userId) => {
+          if (userId !== client.userId && otherClient.ws.readyState === WebSocket.OPEN) {
+            otherClient.ws.send(data, { binary: true });
+          }
+        });
+        
+        // Apply update to server's Y.Doc if it's a sync update
+        if (data[0] === 0 || data[0] === 2) {
+          try {
+            Y.applyUpdate(room.doc, new Uint8Array(data.slice(1)));
+          } catch (err) {
+            // Ignore sync protocol messages that aren't updates
+          }
+        }
+        return;
+      }
+
+      // Try to parse as JSON for custom messages
+      const message: WSMessage = JSON.parse(data.toString());
 
       switch (message.type) {
         case 'update':
@@ -172,7 +195,17 @@ export class CollaborationServer {
           console.warn(`Unknown message type: ${message.type}`);
       }
     } catch (error) {
-      console.error('Error handling message:', error);
+      // Silently ignore parse errors for binary messages
+      if (error instanceof SyntaxError && data.length > 0 && data[0] < 32) {
+        // This is likely a binary message, just broadcast it
+        room.clients.forEach((otherClient, userId) => {
+          if (userId !== client.userId && otherClient.ws.readyState === WebSocket.OPEN) {
+            otherClient.ws.send(data, { binary: true });
+          }
+        });
+      } else {
+        console.error('Error handling message:', error);
+      }
     }
   }
 

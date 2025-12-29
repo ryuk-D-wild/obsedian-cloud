@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline - Obsidian Cloud</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      padding: 20px;
+    }
+    
+    .container {
+      text-align: center;
+      max-width: 500px;
+    }
+    
+    .icon {
+      font-size: 80px;
+      margin-bottom: 20px;
+      opacity: 0.9;
+    }
+    
+    h1 {
+      font-size: 32px;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+    
+    p {
+      font-size: 18px;
+      line-height: 1.6;
+      opacity: 0.9;
+      margin-bottom: 30px;
+    }
+    
+    .button {
+      display: inline-block;
+      padding: 12px 32px;
+      background: white;
+      color: #667eea;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+      transition: transform 0.2s;
+    }
+    
+    .button:hover {
+      transform: translateY(-2px);
+    }
+    
+    .status {
+      margin-top: 30px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    
+    .online {
+      color: #4ade80;
+    }
+    
+    .offline {
+      color: #fbbf24;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📡</div>
+    <h1>You're Offline</h1>
+    <p>
+      No internet connection detected. Your work is saved locally and will sync automatically when you're back online.
+    </p>
+    <a href="/" class="button">Try Again</a>
+    
+    <div class="status">
+      <div id="status">
+        <span class="offline">● Offline</span>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Monitor online/offline status
+    function updateStatus() {
+      const statusEl = document.getElementById('status');
+      if (navigator.onLine) {
+        statusEl.innerHTML = '<span class="online">● Online</span>';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1000);
+      } else {
+        statusEl.innerHTML = '<span class="offline">● Offline</span>';
+      }
+    }
+    
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    
+    // Check status every 3 seconds
+    setInterval(updateStatus, 3000);
+    updateStatus();
+  </script>
+</body>
+</html>

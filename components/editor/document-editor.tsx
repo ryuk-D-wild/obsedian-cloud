@@ -21,8 +21,8 @@ import { SlashCommandMenu, type SlashCommand } from './slash-command-menu';
 export interface EditorProps {
   /** Document ID for collaboration */
   documentId: string;
-  /** Initial content as Yjs encoded state */
-  initialContent?: Uint8Array;
+  /** Initial content as HTML string */
+  initialContent?: string;
   /** Current user ID */
   userId: string;
   /** Current user display name */
@@ -62,6 +62,7 @@ export function DocumentEditor({
   userId,
   userName = 'Anonymous',
   userColor,
+  initialContent,
   placeholder = 'Start typing or press "/" for commands...',
   readOnly = false,
   onUpdate,
@@ -69,7 +70,19 @@ export function DocumentEditor({
   onSlashCommand,
   className = '',
 }: EditorProps) {
-  const { provider, connectionStatus, collaborators } = useCollaboration();
+  // Try to use collaboration if provider is available, otherwise work standalone
+  let provider = null;
+  let connectionStatus: 'connected' | 'connecting' | 'disconnected' = 'disconnected';
+  let collaborators: any[] = [];
+  
+  try {
+    const collaboration = useCollaboration();
+    provider = collaboration.provider;
+    connectionStatus = collaboration.connectionStatus;
+    collaborators = collaboration.collaborators;
+  } catch {
+    // No collaboration provider available, work in standalone mode
+  }
 
   // Get the Yjs fragment for ProseMirror binding
   const yjsFragment = useMemo(() => {
@@ -91,16 +104,17 @@ export function DocumentEditor({
   const editor = useEditor({
     // Prevent SSR hydration mismatch
     immediatelyRender: false,
+    content: initialContent || '',
     extensions: [
       StarterKit.configure({
-        // Disable history as Yjs handles undo/redo
-        history: false,
+        // Enable history for undo/redo when not using collaboration
+        history: provider ? false : {},
       }),
       Placeholder.configure({
         placeholder,
         emptyEditorClass: 'is-editor-empty',
       }),
-      // Collaboration extension for Yjs binding
+      // Collaboration extension for Yjs binding (only if provider available)
       ...(yjsFragment && provider
         ? [
             Collaboration.configure({
@@ -136,7 +150,7 @@ export function DocumentEditor({
     onCreate: ({ editor }) => {
       onReady?.(editor);
     },
-  }, [yjsFragment, provider, userName, cursorColor, placeholder, readOnly, className]);
+  }, [yjsFragment, provider, userName, cursorColor, placeholder, readOnly, className, initialContent]);
 
   // Handle keyboard shortcuts for formatting
   // Requirements: 7.4 - Keyboard navigation
@@ -232,52 +246,46 @@ export function DocumentEditor({
     };
   }, [editor]);
 
-  if (!provider) {
-    return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground">
-        Initializing editor...
-      </div>
-    );
-  }
-
   return (
     <div 
       className="document-editor relative"
       role="region"
       aria-label="Document editor"
     >
-      {/* Connection status indicator - accessible */}
-      <div 
-        className="absolute top-2 right-2 flex items-center gap-2 text-xs"
-        role="status"
-        aria-live="polite"
-      >
-        <span
-          className={`w-2 h-2 rounded-full ${
-            connectionStatus === 'connected'
-              ? 'bg-green-500'
-              : connectionStatus === 'connecting'
-              ? 'bg-yellow-500 animate-pulse'
-              : 'bg-red-500'
-          }`}
-          aria-hidden="true"
-        />
-        <span className="text-muted-foreground capitalize">
-          {connectionStatus}
-        </span>
-        {collaborators.length > 0 && (
-          <span className="text-muted-foreground">
-            • {collaborators.length} other{collaborators.length !== 1 ? 's' : ''} editing
+      {/* Connection status indicator - only show if collaboration is enabled */}
+      {provider && (
+        <div 
+          className="absolute top-2 right-2 flex items-center gap-2 text-xs"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className={`w-2 h-2 rounded-full ${
+              connectionStatus === 'connected'
+                ? 'bg-green-500'
+                : connectionStatus === 'connecting'
+                ? 'bg-yellow-500 animate-pulse'
+                : 'bg-red-500'
+            }`}
+            aria-hidden="true"
+          />
+          <span className="text-muted-foreground capitalize">
+            {connectionStatus}
           </span>
-        )}
-        <span className="sr-only">
-          {connectionStatus === 'connected' 
-            ? `Connected. ${collaborators.length} other user${collaborators.length !== 1 ? 's' : ''} editing.`
-            : connectionStatus === 'connecting'
-            ? 'Connecting to collaboration server...'
-            : 'Disconnected from collaboration server.'}
-        </span>
-      </div>
+          {collaborators.length > 0 && (
+            <span className="text-muted-foreground">
+              • {collaborators.length} other{collaborators.length !== 1 ? 's' : ''} editing
+            </span>
+          )}
+          <span className="sr-only">
+            {connectionStatus === 'connected' 
+              ? `Connected. ${collaborators.length} other user${collaborators.length !== 1 ? 's' : ''} editing.`
+              : connectionStatus === 'connecting'
+              ? 'Connecting to collaboration server...'
+              : 'Disconnected from collaboration server.'}
+          </span>
+        </div>
+      )}
 
       {/* Editor content */}
       <EditorContent editor={editor} className="mt-8" />

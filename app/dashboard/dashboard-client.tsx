@@ -2,12 +2,12 @@
 
 /**
  * Dashboard Client Component
- * Handles document management with real database operations
+ * Handles document management with real database operations and offline support
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { CollaborationProvider } from '@/components/collaboration';
 import { DocumentEditor } from '@/components/editor';
+import { CollaborationProvider } from '@/components/collaboration';
 import { DocumentList, type DocumentSummary } from '@/components/documents/document-list';
 import { SignOutButton } from '@/components/auth/sign-out-button';
 import { ThemeToggle } from '@/components/theme';
@@ -18,6 +18,8 @@ import { FileText, Menu, X, Check, Loader2 } from 'lucide-react';
 import {
   createDocument,
   deleteDocument,
+  updateDocument,
+  getDocument,
 } from '@/lib/actions/documents';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving';
@@ -42,22 +44,132 @@ export function DashboardClient({
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [isLoadingDocument, setIsLoadingDocument] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [documentContent, setDocumentContent] = useState<string>('');
+  const [yjsInitialState, setYjsInitialState] = useState<Uint8Array | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
   const { addToast } = useToast();
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedStateRef = useRef<Uint8Array | null>(null);
+  const isSavingRef = useRef(false);
+  const offlineQueueRef = useRef<Array<{ documentId: string; state: Uint8Array }>>([]);
 
-  const handleContentUpdate = useCallback(() => {
-    setSaveStatus('unsaved');
+  // Monitor online/offline status
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (offlineQueueRef.current.length > 0) {
+        addToast({
+          title: 'Back online',
+          description: 'Syncing your changes...',
+          variant: 'default',
+        });
+        processOfflineQueue();
+      }
+    };
+    
+    const handleOffline = () => {
+      setIsOnline(false);
+      addToast({
+        title: 'You\'re offline',
+        description: 'Your changes will be saved locally.',
+        variant: 'default',
+      });
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [addToast]);
+
+  // Process offline queue
+  const processOfflineQueue = useCallback(async () => {
+    const queue = [...offlineQueueRef.current];
+    offlineQueueRef.current = [];
+    
+    for (const item of queue) {
+      try {
+        await updateDocument(item.documentId, { 
+          yjsState: new Uint8Array(item.state) as Uint8Array<ArrayBuffer>
+        });
+      } catch (error) {
+        console.warn('Failed to sync:', error);
+        offlineQueueRef.current.push(item);
+      }
+    }
+    
+    if (offlineQueueRef.current.length === 0) {
+      addToast({
+        title: 'Synced',
+        description: 'All changes saved.',
+        variant: 'success',
+      });
+    }
+  }, [addToast]);
+
+  // Helper to compare arrays
+  const arraysEqual = (a: Uint8Array, b: Uint8Array): boolean => {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  };
+
+  const handleContentUpdate = useCallback((content: string, yjsUpdate?: Uint8Array) => {
+    setDocumentContent(content);
     
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
-    saveTimeoutRef.current = setTimeout(() => {
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (!selectedDocumentId || isSavingRef.current) return;
+      
+      const stateToSave = yjsUpdate || new TextEncoder().encode(content);
+      
+      if (lastSavedStateRef.current && arraysEqual(lastSavedStateRef.current, stateToSave)) {
+        return;
+      }
+      
+      if (!isOnline) {
+        offlineQueueRef.current.push({ documentId: selectedDocumentId, state: stateToSave });
+        setSaveStatus('saved');
+        return;
+      }
+      
+      isSavingRef.current = true;
       setSaveStatus('saving');
-      setTimeout(() => setSaveStatus('saved'), 300);
-    }, 1500);
-  }, []);
+      
+      try {
+        const result = await updateDocument(selectedDocumentId, { 
+          yjsState: new Uint8Array(stateToSave) as Uint8Array<ArrayBuffer>
+        });
+        
+        if (result.success) {
+          lastSavedStateRef.current = stateToSave;
+          setSaveStatus('saved');
+        } else {
+          setSaveStatus('unsaved');
+          console.warn('Auto-save failed:', result.error);
+        }
+      } catch (error) {
+        setSaveStatus('unsaved');
+        console.warn('Auto-save failed:', error);
+      } finally {
+        isSavingRef.current = false;
+      }
+    }, 3000);
+  }, [selectedDocumentId, isOnline]);
+
+  const handleYjsUpdate = useCallback((yjsState: Uint8Array) => {
+    handleContentUpdate('', yjsState);
+  }, [handleContentUpdate]);
 
   useEffect(() => {
     return () => {
@@ -81,6 +193,10 @@ export function DashboardClient({
         };
         setDocuments(prev => [newDoc, ...prev]);
         setSelectedDocumentId(newDoc.id);
+        setDocumentContent('');
+        setYjsInitialState(null);
+        lastSavedStateRef.current = null;
+        setSaveStatus('saved');
         addToast({
           title: 'Document created',
           description: 'Your new document is ready.',
@@ -138,12 +254,67 @@ export function DashboardClient({
     }
   }, [selectedDocumentId, addToast]);
 
-  const handleSelectDocument = useCallback((id: string) => {
+  const handleSelectDocument = useCallback(async (id: string) => {
+    if (selectedDocumentId && saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    
     setIsLoadingDocument(true);
     setSelectedDocumentId(id);
     setSaveStatus('saved');
+    lastSavedStateRef.current = null;
+    
+    try {
+      const result = await getDocument(id);
+      
+      if (result.success && result.data?.yjsState) {
+        const content = new TextDecoder().decode(result.data.yjsState);
+        setDocumentContent(content);
+        setYjsInitialState(result.data.yjsState);
+        lastSavedStateRef.current = result.data.yjsState;
+      } else {
+        setDocumentContent('');
+        setYjsInitialState(null);
+        lastSavedStateRef.current = null;
+      }
+    } catch {
+      setDocumentContent('');
+      setYjsInitialState(null);
+      lastSavedStateRef.current = null;
+    }
+    
     setTimeout(() => setIsLoadingDocument(false), 300);
-  }, []);
+  }, [selectedDocumentId]);
+
+  const handleRenameDocument = useCallback(async (id: string, newTitle: string) => {
+    try {
+      const result = await updateDocument(id, { title: newTitle });
+      
+      if (result.success) {
+        setDocuments(prev => prev.map(doc => 
+          doc.id === id ? { ...doc, title: newTitle, updatedAt: new Date() } : doc
+        ));
+        addToast({
+          title: 'Document renamed',
+          description: 'The document title has been updated.',
+          variant: 'success',
+        });
+      } else {
+        addToast({
+          title: 'Error',
+          description: result.error || 'Failed to rename document',
+          variant: 'error',
+        });
+      }
+    } catch {
+      addToast({
+        title: 'Error',
+        description: 'Failed to rename document',
+        variant: 'error',
+      });
+    }
+  }, [addToast]);
 
   const selectedDocument = documents.find(d => d.id === selectedDocumentId);
 
@@ -173,6 +344,7 @@ export function DashboardClient({
             documents={documents}
             onSelect={handleSelectDocument}
             onDelete={handleDeleteDocument}
+            onRename={handleRenameDocument}
             onCreate={handleCreateDocument}
             isCreating={isCreating}
             deletingIds={deletingIds}
@@ -205,6 +377,13 @@ export function DashboardClient({
               <FileText className="w-4 h-4 text-muted-foreground" />
               <span className="font-medium">{selectedDocument.title}</span>
               <div className="flex items-center gap-1 ml-2 text-sm text-muted-foreground">
+                {!isOnline && (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                    <span className="text-yellow-500">Offline</span>
+                    <span className="mx-1">•</span>
+                  </>
+                )}
                 {saveStatus === 'saving' && (
                   <>
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -240,12 +419,16 @@ export function DashboardClient({
                 documentId={selectedDocumentId}
                 userId={userId}
                 userName={userName}
+                initialState={yjsInitialState}
+                onUpdate={handleYjsUpdate}
               >
                 <div className="max-w-4xl mx-auto p-8">
                   <DocumentEditor
+                    key={selectedDocumentId}
                     documentId={selectedDocumentId}
                     userId={userId}
                     userName={userName}
+                    initialContent={documentContent}
                     placeholder="Start typing or press '/' for commands..."
                     onUpdate={handleContentUpdate}
                   />
