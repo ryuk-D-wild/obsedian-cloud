@@ -8,42 +8,39 @@ import { DashboardClient } from './dashboard-client';
  * Fetches user's documents from database and renders the dashboard
  */
 export default async function DashboardPage() {
-  const session = await auth();
-  
-  if (!session?.user?.id) {
-    redirect('/sign-in');
-  }
+  try {
+    const session = await auth();
 
-  // Get user's first workspace (or create one if none exists)
-  let workspace = await prisma.workspace.findFirst({
-    where: {
-      members: {
-        some: { userId: session.user.id }
-      }
-    },
-    include: {
-      documents: {
-        select: {
-          id: true,
-          title: true,
-          updatedAt: true,
-        },
-        orderBy: { updatedAt: 'desc' },
-      },
-    },
-  });
+    if (!session?.user?.id) {
+      console.log('[Dashboard] No session found, redirecting to sign-in');
+      redirect('/sign-in');
+    }
 
-  // Create default workspace if user has none
-  if (!workspace) {
-    workspace = await prisma.workspace.create({
-      data: {
-        name: 'My Workspace',
+    console.log('[Dashboard] Session user ID:', session.user.id);
+
+    // CRITICAL: Verify the user actually exists in the database
+    // This prevents foreign key constraint errors
+    let dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+    });
+
+    if (!dbUser) {
+      console.error('[Dashboard] User in session does not exist in database:', session.user.id);
+      console.log('[Dashboard] Invalid session detected, redirecting to sign-in');
+
+      // Redirect to sign-in - the session will be handled there
+      // We can't call signOut here because cookies can only be modified in Server Actions
+      redirect('/sign-in');
+    }
+
+    console.log('[Dashboard] User verified in database:', dbUser.email);
+
+    // Get user's first workspace (or create one if none exists)
+    let workspace = await prisma.workspace.findFirst({
+      where: {
         members: {
-          create: {
-            userId: session.user.id,
-            role: 'OWNER',
-          },
-        },
+          some: { userId: session.user.id }
+        }
       },
       include: {
         documents: {
@@ -56,14 +53,59 @@ export default async function DashboardPage() {
         },
       },
     });
-  }
 
-  return (
-    <DashboardClient
-      initialDocuments={workspace.documents}
-      workspaceId={workspace.id}
-      userId={session.user.id}
-      userName={session.user.name || 'User'}
-    />
-  );
+    console.log('[Dashboard] Workspace found:', workspace?.id || 'none');
+
+    // Create default workspace if user has none
+    if (!workspace) {
+      console.log('[Dashboard] Creating default workspace for user:', session.user.id);
+
+      try {
+        workspace = await prisma.workspace.create({
+          data: {
+            name: 'My Workspace',
+            members: {
+              create: {
+                userId: session.user.id,
+                role: 'OWNER',
+              },
+            },
+          },
+          include: {
+            documents: {
+              select: {
+                id: true,
+                title: true,
+                updatedAt: true,
+              },
+              orderBy: { updatedAt: 'desc' },
+            },
+          },
+        });
+        console.log('[Dashboard] Created workspace:', workspace.id);
+      } catch (createError) {
+        console.error('[Dashboard] Failed to create workspace:', createError);
+        throw createError;
+      }
+    }
+
+    return (
+      <DashboardClient
+        initialDocuments={workspace.documents}
+        workspaceId={workspace.id}
+        userId={session.user.id}
+        userName={session.user.name || 'User'}
+      />
+    );
+  } catch (error) {
+    console.error('[Dashboard] Error:', error);
+
+    // If it's a redirect, let it through
+    if (error && typeof error === 'object' && 'digest' in error) {
+      throw error;
+    }
+
+    // For other errors, show them
+    throw error;
+  }
 }

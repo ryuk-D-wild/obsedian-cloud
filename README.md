@@ -93,3 +93,40 @@ Open [http://localhost:3000](http://localhost:3000)
 
 **Result:** Seamless Google Docs-like experience with zero focus loss!
 
+## Troubleshooting
+
+### Foreign Key Constraint Error
+
+If you see `Foreign key constraint violated on the constraint: WorkspaceMember_userId_fkey`:
+
+1. **Clear your browser cookies** - Your session may reference a deleted user
+2. **Sign out and sign in again** - Go to `/sign-in` and re-authenticate
+3. **Check database** - Ensure the user exists in the `User` table
+4. **Reset database** (last resort):
+   ```bash
+   npx prisma db push --force-reset
+   npm run db:seed
+   ```
+
+### Database Connection Timeout
+
+If you see `ETIMEDOUT` or connection errors:
+
+1. **Verify DATABASE_URL** - Check your `.env` file has the correct connection string
+2. **For Prisma Accelerate/Postgres** - URL should start with `prisma+postgres://`
+3. **Check network** - Ensure your database is accessible
+4. **Vercel deployment** - Set environment variables in Vercel dashboard
+
+### Sign-up/Sign-in Not Working on Vercel
+
+1. **Set environment variables** in Vercel project settings:
+   - `DATABASE_URL` - Your Prisma Postgres connection string
+   - `AUTH_SECRET` - Generate with `openssl rand -base64 32`
+   - `AUTH_URL` - Your Vercel app URL (e.g., `https://your-app.vercel.app`)
+
+2. **Push database schema**:
+   ```bash
+   npx prisma db push
+   ```
+
+3. **Check logs** - View Vercel function logs for detailed errors
