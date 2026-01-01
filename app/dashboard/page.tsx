@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { auth } from '@/lib/auth';
+import { auth, signOut } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { DashboardClient } from './dashboard-client';
 
@@ -18,18 +18,15 @@ export default async function DashboardPage() {
 
     console.log('[Dashboard] Session user ID:', session.user.id);
 
-    // CRITICAL: Verify the user actually exists in the database
-    // This prevents foreign key constraint errors
-    let dbUser = await prisma.user.findUnique({
+    // Verify user exists in database
+    const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
     });
 
     if (!dbUser) {
-      console.error('[Dashboard] User in session does not exist in database:', session.user.id);
-      console.log('[Dashboard] Invalid session detected, redirecting to sign-in');
-
-      // Redirect to sign-in - the session will be handled there
-      // We can't call signOut here because cookies can only be modified in Server Actions
+      console.log('[Dashboard] User not in database, clearing session and redirecting');
+      // Clear invalid session and redirect to sign-in
+      await signOut({ redirect: false });
       redirect('/sign-in');
     }
 
